@@ -252,17 +252,43 @@
         </button>
       </div>
 
+      <!-- Yandex Türkiye Arama Motoru (%100 Ücretsiz & Kartsız) -->
+      <div class="p-3 bg-red-950/20 border border-red-500/30 rounded-xl space-y-2 text-xs">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5 text-red-400 font-bold">
+            <i class="fa-solid fa-map-location-dot"></i>
+            <span>Yandex Türkiye Arama Motoru</span>
+          </div>
+          <span id="yandexActiveBadge" class="text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-800 text-slate-400 border border-slate-700">Pasif</span>
+        </div>
+        <p class="text-[11px] text-slate-300 leading-relaxed">
+          Aygül Çıkmazı gibi köy ve ara sokakları bulmak için Yandex'in <strong>%100 ücretsiz (kredi kartı istemeyen)</strong> API anahtarını ekleyebilirsiniz.
+        </p>
+        <div class="flex gap-2">
+          <input id="inputYandexKey" type="text" placeholder="Ücretsiz Yandex API Anahtarınızı yapıştırın..." class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500">
+          <button id="btnSaveYandexKey" class="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-lg text-xs shrink-0 transition">
+            Kaydet
+          </button>
+        </div>
+        <div class="flex items-center justify-between pt-0.5 text-[11px]">
+          <a href="https://developer.tech.yandex.ru/" target="_blank" class="text-red-400 hover:text-red-300 underline flex items-center gap-1">
+            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i> Ücretsiz Anahtar Al (Kartsız / 1 dk)
+          </a>
+          <button id="btnRemoveYandexKey" class="text-slate-400 hover:text-rose-400 text-[10px] hidden">Anahtarı Kaldır</button>
+        </div>
+      </div>
+
       <!-- Friendly Street Tip Banner -->
       <div class="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300 flex items-start gap-2">
         <i class="fa-solid fa-lightbulb text-amber-400 mt-0.5 shrink-0"></i>
         <span>
-          <strong>İpucu:</strong> Küçük sokaklar ve çıkmazlar harita sisteminde kayıtlı olmayabilir. Mahallenizi (örn: <em>Altınçağ</em>) arattıktan sonra harita üzerinde evinizin olduğu yere dokunarak veya iğneyi sürükleyerek tam yerinizi belirleyebilirsiniz.
+          <strong>Alternatif İpucu:</strong> Harita katmanından <em>Google Uydu</em>'yu açıp evinizin çatısına veya okulun üzerine doğrudan 1 kez dokunarak da durağı tam yerine ekleyebilirsiniz.
         </span>
       </div>
 
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
-          <input id="inputSearchQuery" type="text" placeholder="Örn: Altınçağ, Kadıköy, Kızılay..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+          <input id="inputSearchQuery" type="text" placeholder="Örn: Altınçağ, Kadıköy, Aygül Çıkmazı..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
           <div id="searchSpinner" class="hidden absolute right-3.5 top-3.5 text-blue-400 text-sm">
             <i class="fa-solid fa-circle-notch fa-spin"></i>
           </div>
@@ -503,6 +529,72 @@
       };
     }
 
+    // --- Yandex Maps API Dynamic Loader (%100 Ücretsiz & Kartsız) ---
+    let yandexApiReady = false;
+
+    function updateYandexStatusBadge(isActive) {
+      const badge = document.getElementById('yandexActiveBadge');
+      const removeBtn = document.getElementById('btnRemoveYandexKey');
+      const input = document.getElementById('inputYandexKey');
+      if (!badge) return;
+
+      if (isActive) {
+        badge.className = 'text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        badge.innerHTML = '<i class="fa-solid fa-check mr-1"></i>Aktif (%100 Ücretsiz)';
+        if (removeBtn) removeBtn.classList.remove('hidden');
+        if (input && !input.value) input.value = localStorage.getItem('yandex_api_key') || '';
+      } else {
+        badge.className = 'text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-800 text-slate-400 border border-slate-700';
+        badge.innerText = 'Pasif (Açık Kaynak Aktif)';
+        if (removeBtn) removeBtn.classList.add('hidden');
+      }
+    }
+
+    function initYandexMaps(apiKey) {
+      if (!apiKey || !apiKey.trim()) {
+        updateYandexStatusBadge(false);
+        return;
+      }
+
+      const cleanKey = apiKey.trim();
+      if (window.ymaps && window.ymaps.geocode) {
+        yandexApiReady = true;
+        updateYandexStatusBadge(true);
+        return;
+      }
+
+      // Check if script tag already exists
+      let existingScript = document.getElementById('yandexMapsScript');
+      if (existingScript) existingScript.remove();
+
+      const script = document.createElement('script');
+      script.id = 'yandexMapsScript';
+      script.src = `https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(cleanKey)}&lang=tr_TR`;
+      script.type = 'text/javascript';
+      script.onload = () => {
+        if (window.ymaps) {
+          window.ymaps.ready(() => {
+            yandexApiReady = true;
+            updateYandexStatusBadge(true);
+            showToast('Yandex Türkiye Arama Motoru devrede!', 'fa-circle-check');
+          });
+        }
+      };
+      script.onerror = () => {
+        console.warn('Yandex Maps API yüklenemedi. API anahtarını kontrol ediniz.');
+        updateYandexStatusBadge(false);
+      };
+      document.head.appendChild(script);
+    }
+
+    // Auto-load saved Yandex API Key from localStorage
+    try {
+      const savedKey = localStorage.getItem('yandex_api_key');
+      if (savedKey) {
+        initYandexMaps(savedKey);
+      }
+    } catch (e) {}
+
     async function fetchFromProviders(q) {
       const clean = q.trim();
       if (!clean) return [];
@@ -550,8 +642,8 @@
         }];
       }
 
-      // Check Google Maps coordinates URL: @36.8714,36.2143 or q=36.8714,36.2143
-      const gmapsMatch = clean.match(/[@?&]q?=([+-]?\d+\.\d+),([+-]?\d+\.\d+)/);
+      // Check Google Maps coordinates URL: @36.8714,36.2143 or q=36.8714,36.2143 or ll=36.8714,36.2143
+      const gmapsMatch = clean.match(/[@?&](?:q|ll)?=?([+-]?\d+\.\d+),([+-]?\d+\.\d+)/);
       if (gmapsMatch) {
         const lat = parseFloat(gmapsMatch[1]);
         const lon = parseFloat(gmapsMatch[2]);
@@ -563,7 +655,33 @@
         }];
       }
 
-      // 1. Try exact user query first
+      // 1. Try Yandex Maps Geocoder First if Active (Best for Turkey Street Details)
+      if (yandexApiReady && window.ymaps && window.ymaps.geocode) {
+        try {
+          const yRes = await window.ymaps.geocode(clean, { results: 8 });
+          const yList = [];
+          yRes.geoObjects.each(geo => {
+            const coords = geo.geometry.getCoordinates(); // [lat, lon]
+            const name = geo.properties.get('name') || clean;
+            const description = geo.properties.get('description') || '';
+            const fullText = geo.properties.get('text') || `${name}, ${description}`;
+            yList.push({
+              short_name: name,
+              display_name: fullText,
+              lat: coords[0],
+              lon: coords[1],
+              provider: 'yandex'
+            });
+          });
+          if (yList.length > 0) {
+            return yList;
+          }
+        } catch (yErr) {
+          console.warn('Yandex Geocoder araması başarısız oldu, alternatife geçiliyor:', yErr);
+        }
+      }
+
+      // 2. Try exact user query with OSM / Photon
       let results = await fetchFromProviders(clean);
       if (results && results.length > 0) return results;
 
@@ -1130,12 +1248,14 @@
 
         results.forEach(item => {
           const btn = document.createElement('button');
-          btn.className = `w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border ${item.is_fallback ? 'border-amber-500/50' : 'border-slate-700/50'} transition flex items-start space-x-2.5`;
+          const isYandex = item.provider === 'yandex';
+          btn.className = `w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border ${isYandex ? 'border-red-500/40 bg-red-950/10' : (item.is_fallback ? 'border-amber-500/50' : 'border-slate-700/50')} transition flex items-start space-x-2.5`;
           btn.innerHTML = `
-            <i class="fa-solid fa-location-dot ${item.is_fallback ? 'text-amber-400' : 'text-blue-400'} text-xs mt-1 shrink-0"></i>
+            <i class="fa-solid fa-location-dot ${isYandex ? 'text-red-400' : (item.is_fallback ? 'text-amber-400' : 'text-blue-400')} text-xs mt-1 shrink-0"></i>
             <div class="truncate flex-1">
               <div class="flex items-center gap-1.5 flex-wrap">
                 <p class="text-xs font-semibold text-white truncate">${escapeHtml(item.short_name)}</p>
+                ${isYandex ? '<span class="text-[9px] bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.5 rounded font-medium shrink-0">Yandex Türkiye</span>' : ''}
                 ${item.is_fallback ? '<span class="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-medium shrink-0">Mahalle Konumu</span>' : ''}
               </div>
               <p class="text-[10px] text-slate-400 truncate">${escapeHtml(item.display_name)}</p>
@@ -1147,7 +1267,7 @@
             map.setView([item.lat, item.lon], 16);
             document.getElementById('modalSearch').classList.add('hidden');
             inputSearchQuery.value = '';
-            showToast(item.is_fallback ? 'Mahalle eklendi! İğneyi evinizin üzerine sürükleyebilirsiniz.' : 'Durak eklendi!', 'fa-location-dot');
+            showToast(isYandex ? 'Yandex durağı eklendi!' : (item.is_fallback ? 'Mahalle eklendi! İğneyi evinizin üzerine sürükleyebilirsiniz.' : 'Durak eklendi!'), 'fa-location-dot');
           };
           searchResults.appendChild(btn);
         });
@@ -1155,6 +1275,34 @@
         searchSpinner.classList.add('hidden');
         searchResults.innerHTML = '<div class="text-xs text-rose-400 text-center py-6">Arama yapılamadı, internet bağlantınızı kontrol edin.</div>';
       }
+    }
+
+    // Yandex API Key UI Event Handlers
+    const btnSaveYandexKey = document.getElementById('btnSaveYandexKey');
+    const btnRemoveYandexKey = document.getElementById('btnRemoveYandexKey');
+    const inputYandexKey = document.getElementById('inputYandexKey');
+
+    if (btnSaveYandexKey) {
+      btnSaveYandexKey.addEventListener('click', () => {
+        const val = inputYandexKey ? inputYandexKey.value.trim() : '';
+        if (!val) {
+          showToast('Lütfen geçerli bir Yandex API anahtarı girin!', 'fa-triangle-exclamation');
+          return;
+        }
+        localStorage.setItem('yandex_api_key', val);
+        initYandexMaps(val);
+        showToast('Yandex Anahtarı Kaydedildi!', 'fa-key');
+      });
+    }
+
+    if (btnRemoveYandexKey) {
+      btnRemoveYandexKey.addEventListener('click', () => {
+        localStorage.removeItem('yandex_api_key');
+        yandexApiReady = false;
+        if (inputYandexKey) inputYandexKey.value = '';
+        updateYandexStatusBadge(false);
+        showToast('Yandex anahtarı silindi.', 'fa-trash');
+      });
     }
 
     inputSearchQuery.addEventListener('input', function() {
