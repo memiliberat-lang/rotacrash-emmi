@@ -701,18 +701,21 @@
       const clean = q.trim();
       if (!clean) return [];
 
-      // 1. Try Photon
+      // 1. Try Photon (biased to Hatay/Altınçağ coordinates)
       try {
-        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(clean)}&limit=8`);
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(clean)}&lat=36.8714&lon=36.2143&limit=8`);
         const data = await res.json();
         if (data && data.features && data.features.length > 0) {
-          return data.features.map(parsePhotonFeature);
+          return data.features.map(parsePhotonFeature).filter(item => {
+            // Keep points within Turkey boundaries
+            return item && item.lat >= 35.0 && item.lat <= 42.5 && item.lon >= 25.5 && item.lon <= 45.0;
+          });
         }
       } catch (e) {}
 
-      // 2. Fallback Nominatim
+      // 2. Fallback Nominatim (strictly countrycodes=tr)
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(clean)}&limit=6&addressdetails=1`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&countrycodes=tr&viewbox=35.5,36.5,36.7,37.3&bounded=0&q=${encodeURIComponent(clean)}&limit=6&addressdetails=1`);
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           return data.map(item => ({
@@ -720,7 +723,9 @@
             display_name: item.display_name,
             lat: parseFloat(item.lat),
             lon: parseFloat(item.lon)
-          }));
+          })).filter(item => {
+            return isFinite(item.lat) && isFinite(item.lon) && item.lat >= 35.0 && item.lat <= 42.5;
+          });
         }
       } catch (e) {}
 
@@ -892,12 +897,19 @@
       for (const q of candidates) {
         try {
           const res = await searchGeocode(q);
-          if (res && res.length > 0 && isFinite(Number(res[0].lat)) && isFinite(Number(res[0].lon))) {
-            return {
-              title: title || clean,
-              lat: Number(res[0].lat),
-              lng: Number(res[0].lon)
-            };
+          if (res && res.length > 0) {
+            for (const item of res) {
+              const lat = Number(item.lat);
+              const lon = Number(item.lon);
+              // Strict check: must be in Hatay / Çukurova region
+              if (isFinite(lat) && isFinite(lon) && lat >= 35.8 && lat <= 37.2 && lon >= 35.8 && lon <= 36.6) {
+                return {
+                  title: title || clean,
+                  lat: lat,
+                  lng: lon
+                };
+              }
+            }
           }
         } catch (e) {}
       }
@@ -1322,16 +1334,29 @@
 
     // --- Create Google Maps & Apple Maps Deep Links ---
     function generateMapsLinks(orderedStops, isRoundTrip) {
-      const origin = `${orderedStops[0].lat},${orderedStops[0].lng}`;
+      function formatGmapsTarget(stop) {
+        const cleanTitle = String(stop.title || '').trim();
+        // If it's a generic coordinate label
+        if (/^konum\s*\(/i.test(cleanTitle) || /^[+-]?\d+\.\d+/.test(cleanTitle)) {
+          return `${stop.lat},${stop.lng}`;
+        }
+        // If already includes district or city
+        if (/altınçağ|dörtyol|hatay/i.test(cleanTitle)) {
+          return cleanTitle;
+        }
+        return `${cleanTitle}, Altınçağ, Dörtyol, Hatay`;
+      }
+
+      const origin = formatGmapsTarget(orderedStops[0]);
       let destination = '';
       let waypointsList = [];
 
       if (isRoundTrip) {
-        destination = `${orderedStops[0].lat},${orderedStops[0].lng}`;
-        waypointsList = orderedStops.slice(1).map(s => `${s.lat},${s.lng}`);
+        destination = formatGmapsTarget(orderedStops[0]);
+        waypointsList = orderedStops.slice(1).map(formatGmapsTarget);
       } else {
-        destination = `${orderedStops[orderedStops.length - 1].lat},${orderedStops[orderedStops.length - 1].lng}`;
-        waypointsList = orderedStops.slice(1, -1).map(s => `${s.lat},${s.lng}`);
+        destination = formatGmapsTarget(orderedStops[orderedStops.length - 1]);
+        waypointsList = orderedStops.slice(1, -1).map(formatGmapsTarget);
       }
 
       // Google Maps Universal Link
