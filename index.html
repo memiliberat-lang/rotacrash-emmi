@@ -530,6 +530,7 @@
     }
 
     // --- Yandex Maps API Dynamic Loader (%100 Ücretsiz & Kartsız) ---
+    const DEFAULT_YANDEX_KEY = '0cf028fe-3d67-4e7c-b080-0d0ac3b72972';
     let yandexApiReady = false;
 
     function updateYandexStatusBadge(isActive) {
@@ -542,7 +543,7 @@
         badge.className = 'text-[10px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
         badge.innerHTML = '<i class="fa-solid fa-check mr-1"></i>Aktif (%100 Ücretsiz)';
         if (removeBtn) removeBtn.classList.remove('hidden');
-        if (input && !input.value) input.value = localStorage.getItem('yandex_api_key') || '';
+        if (input && !input.value) input.value = localStorage.getItem('yandex_api_key') || DEFAULT_YANDEX_KEY;
       } else {
         badge.className = 'text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-800 text-slate-400 border border-slate-700';
         badge.innerText = 'Pasif (Açık Kaynak Aktif)';
@@ -587,11 +588,11 @@
       document.head.appendChild(script);
     }
 
-    // Auto-load saved Yandex API Key from localStorage
+    // Auto-load saved Yandex API Key from localStorage or default key
     try {
-      const savedKey = localStorage.getItem('yandex_api_key');
-      if (savedKey) {
-        initYandexMaps(savedKey);
+      const activeKey = localStorage.getItem('yandex_api_key') || DEFAULT_YANDEX_KEY;
+      if (activeKey) {
+        initYandexMaps(activeKey);
       }
     } catch (e) {}
 
