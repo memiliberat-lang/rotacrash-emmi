@@ -199,15 +199,15 @@
         </label>
       </div>
 
-      <!-- Stop List Items Container -->
-      <div id="stopsList" class="space-y-2 max-h-64 overflow-y-auto pr-1">
-        <!-- Empty state placeholder -->
-        <div id="emptyState" class="text-center py-8 text-slate-500 text-xs">
-          <i class="fa-solid fa-map-location-dot text-3xl mb-2 text-slate-600 block"></i>
-          Henüz durak eklenmedi.<br>
-          <span class="text-slate-400 font-medium">"Adres Ara"</span>, <span class="text-amber-400 font-medium">"8 Örnek"</span> veya haritaya tıklayarak durak ekleyin.
-        </div>
+      <!-- Empty state placeholder -->
+      <div id="emptyState" class="text-center py-8 text-slate-500 text-xs">
+        <i class="fa-solid fa-map-location-dot text-3xl mb-2 text-slate-600 block"></i>
+        Henüz durak eklenmedi.<br>
+        <span class="text-slate-400 font-medium">"Adres Ara"</span>, <span class="text-amber-400 font-medium">"8 Örnek"</span> veya haritaya tıklayarak durak ekleyin.
       </div>
+
+      <!-- Stop List Items Container -->
+      <div id="stopsList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
     </div>
 
     <!-- Optimization Calculation Action Section -->
@@ -961,22 +961,23 @@
         if (!s.id) s.id = 'stop_' + idx + '_' + Date.now();
       });
 
-      stopCountBadge.innerText = `${stops.length} Durak`;
+      if (stopCountBadge) {
+        stopCountBadge.innerText = `${stops.length} Durak`;
+      }
 
       if (stops.length === 0) {
-        emptyState.classList.remove('hidden');
-        stopsList.innerHTML = '';
-        stopsList.appendChild(emptyState);
-        markersLayer.clearLayers();
-        if (routePolyline) {
+        if (emptyState) emptyState.classList.remove('hidden');
+        if (stopsList) stopsList.innerHTML = '';
+        if (markersLayer) markersLayer.clearLayers();
+        if (routePolyline && map) {
           map.removeLayer(routePolyline);
           routePolyline = null;
         }
         return;
       }
 
-      emptyState.classList.add('hidden');
-      stopsList.innerHTML = '';
+      if (emptyState) emptyState.classList.add('hidden');
+      if (stopsList) stopsList.innerHTML = '';
 
       // Update Map Markers
       markersLayer.clearLayers();
@@ -1081,8 +1082,9 @@
 
 
     function hideResults() {
-      document.getElementById('resultCard').classList.add('hidden');
-      if (routePolyline) {
+      const rc = document.getElementById('resultCard');
+      if (rc) rc.classList.add('hidden');
+      if (routePolyline && map) {
         map.removeLayer(routePolyline);
         routePolyline = null;
       }
@@ -1664,7 +1666,7 @@ YALNIZCA geçerli bir JSON dizisi [ ... ] formatında döndür. Markdown (\`\`\`
               return;
             }
 
-            // Add each extracted stop
+            // Add each extracted stop in batch
             let addedCount = 0;
             for (const item of stopsListJson) {
               if (item && (item.title || item.address)) {
@@ -1672,28 +1674,41 @@ YALNIZCA geçerli bir JSON dizisi [ ... ] formatında döndür. Markdown (\`\`\`
                 const sLat = Number(item.lat);
                 const sLng = Number(item.lng);
                 if (isFinite(sLat) && isFinite(sLng)) {
-                  addStop(sTitle, sLat, sLng);
-                  addedCount++;
+                  if (stops.length < 10) {
+                    stops.push({
+                      id: 'stop_' + (++stopCounter),
+                      title: String(sTitle).trim(),
+                      lat: sLat,
+                      lng: sLng
+                    });
+                    addedCount++;
+                  }
                 }
               }
             }
 
-            document.getElementById('modalGemini').classList.add('hidden');
+            updateUI();
+            hideResults();
+
+            const modalG = document.getElementById('modalGemini');
+            if (modalG) modalG.classList.add('hidden');
             showToast(`Harika! ${addedCount} durak Gemini AI ile haritaya eklendi!`, 'fa-wand-magic-sparkles');
 
             // Reset inputs
             geminiSelectedFile = null;
-            fileInput.value = '';
-            fileInfo.classList.add('hidden');
-            textareaText.value = '';
+            if (fileInput) fileInput.value = '';
+            if (fileInfo) fileInfo.classList.add('hidden');
+            if (textareaText) textareaText.value = '';
 
           } catch (geminiErr) {
             console.error('Gemini error:', geminiErr);
             showToast('Gemini Hatası: ' + geminiErr.message, 'fa-triangle-exclamation');
           } finally {
-            btnExecute.disabled = false;
-            btnExecute.classList.remove('opacity-50');
-            loadingBox.classList.add('hidden');
+            if (btnExecute) {
+              btnExecute.disabled = false;
+              btnExecute.classList.remove('opacity-50');
+            }
+            if (loadingBox) loadingBox.classList.add('hidden');
           }
         });
       }
