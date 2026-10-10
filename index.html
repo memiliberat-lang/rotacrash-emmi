@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>RotaMaster - En Kısa Rota & Google Maps</title>
+  
+  <!-- PWA & Mobile Meta -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1e293b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RotaMaster">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    /* Mobile app feeling */
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      touch-action: pan-y;
+      background-color: #0b1120;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    
+    .safe-top {
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+
+    #map {
+      height: 280px;
+      width: 100%;
+      border-radius: 1rem;
+      z-index: 10;
+    }
+
+    /* Custom Leaflet Marker Badges */
+    .custom-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 13px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    }
+    .marker-start { background-color: #10b981; }
+    .marker-stop { background-color: #3b82f6; }
+    .marker-end { background-color: #ef4444; }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+  <!-- Top App Bar -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50 safe-top">
+    <div class="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
+          <i class="fa-solid fa-route text-white text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white leading-tight flex items-center gap-1.5">
+            RotaMaster
+            <span class="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium px-1.5 py-0.5 rounded-full">Pro</span>
+          </h1>
+          <p class="text-[11px] text-slate-400">Google Maps En Kısa Yol Sıralayıcı</p>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-1.5">
+        <button id="btnPwaInfo" class="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition" title="Telefona Nasıl Yüklenir?">
+          <i class="fa-solid fa-mobile-screen-button text-sm"></i>
+        </button>
+        <button id="btnShareQr" class="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition" title="Telefonda Aç (QR Kod)">
+          <i class="fa-solid fa-qrcode text-sm"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-md w-full mx-auto px-4 py-4 space-y-4">
+
+    <!-- Interactive Map Section -->
+    <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-1.5 shadow-xl overflow-hidden">
+      <div id="map"></div>
+      
+      <!-- Map Overlay Mode Indicators -->
+      <div id="mapTapNotice" class="hidden absolute top-4 left-4 right-4 bg-amber-500/95 text-slate-950 text-xs font-semibold px-3 py-2 rounded-xl text-center shadow-lg backdrop-blur-sm z-[500] animate-pulse">
+        <i class="fa-solid fa-hand-pointer mr-1"></i> Haritada durak eklemek istediğiniz noktaya dokunun!
+      </div>
+      
+      <!-- Map Quick Floating Buttons -->
+      <div class="absolute bottom-4 right-4 flex flex-col space-y-2 z-[400]">
+        <button id="btnMapTapToggle" class="w-10 h-10 rounded-xl bg-slate-900/90 text-slate-200 border border-slate-700 flex items-center justify-center shadow-md active:scale-95 transition" title="Haritadan Tıklayarak Ekle">
+          <i class="fa-solid fa-location-crosshairs text-base"></i>
+        </button>
+        <button id="btnCurrentGps" class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/40 active:scale-95 transition" title="Mevcut GPS Konumumu Ekle">
+          <i class="fa-solid fa-crosshairs text-base"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Action Tool Buttons -->
+    <div class="grid grid-cols-4 gap-2">
+      <button id="btnSearchModal" class="flex flex-col items-center justify-center p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs font-medium text-slate-200 transition active:scale-95">
+        <i class="fa-solid fa-magnifying-glass text-blue-400 text-base mb-1"></i>
+        <span>Adres Ara</span>
+      </button>
+      
+      <button id="btnQuickDemo" class="flex flex-col items-center justify-center p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs font-medium text-slate-200 transition active:scale-95" title="Örnek 8 Durak Yükle">
+        <i class="fa-solid fa-wand-magic-sparkles text-amber-400 text-base mb-1"></i>
+        <span>8 Örnek</span>
+      </button>
+
+      <button id="btnBatchModal" class="flex flex-col items-center justify-center p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs font-medium text-slate-200 transition active:scale-95" title="Toplu Adres Listesi Yapıştır">
+        <i class="fa-solid fa-paste text-indigo-400 text-base mb-1"></i>
+        <span>Toplu Ekle</span>
+      </button>
+
+      <button id="btnClearAll" class="flex flex-col items-center justify-center p-2.5 bg-slate-900/80 hover:bg-slate-800/90 border border-slate-800 rounded-xl text-xs font-medium text-rose-400 transition active:scale-95" title="Tüm Durakları Sil">
+        <i class="fa-solid fa-trash-can text-rose-400 text-base mb-1"></i>
+        <span>Temizle</span>
+      </button>
+    </div>
+
+    <!-- Stops Header & Optimization Settings -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3.5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <span class="text-sm font-semibold text-slate-200">Duraklar</span>
+          <span id="stopCountBadge" class="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-medium">0 Durak</span>
+        </div>
+        <span class="text-[11px] text-slate-400">Google Haritalar 9 durak destekler</span>
+      </div>
+
+      <!-- Settings: Route Type -->
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <label class="flex items-center space-x-2 p-2 bg-slate-800/60 rounded-xl border border-slate-700/60 cursor-pointer">
+          <input type="radio" name="routeType" value="oneway" checked class="text-blue-600 focus:ring-0">
+          <span class="text-slate-300">Tek Yön (Son durakta bitir)</span>
+        </label>
+        <label class="flex items-center space-x-2 p-2 bg-slate-800/60 rounded-xl border border-slate-700/60 cursor-pointer">
+          <input type="radio" name="routeType" value="roundtrip" class="text-blue-600 focus:ring-0">
+          <span class="text-slate-300">Dairesel (Başlangıca dön)</span>
+        </label>
+      </div>
+
+      <!-- Stop List Items Container -->
+      <div id="stopsList" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+        <!-- Empty state placeholder -->
+        <div id="emptyState" class="text-center py-8 text-slate-500 text-xs">
+          <i class="fa-solid fa-map-location-dot text-3xl mb-2 text-slate-600 block"></i>
+          Henüz durak eklenmedi.<br>
+          <span class="text-slate-400 font-medium">"Adres Ara"</span>, <span class="text-amber-400 font-medium">"8 Örnek"</span> veya haritaya tıklayarak durak ekleyin.
+        </div>
+      </div>
+    </div>
+
+    <!-- Optimization Calculation Action Section -->
+    <div class="space-y-2.5">
+      <button id="btnOptimize" class="w-full py-3.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/30 flex items-center justify-center space-x-2 active:scale-[0.98] transition">
+        <i class="fa-solid fa-bolt text-amber-300 text-lg"></i>
+        <span class="text-sm">En Kısa Rotayı Sırala (Optimize Et)</span>
+      </button>
+
+      <!-- Results Card (Hidden until optimized) -->
+      <div id="resultCard" class="hidden bg-gradient-to-br from-slate-900 to-slate-850 border border-emerald-500/40 rounded-2xl p-4 shadow-2xl space-y-3.5">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wide">Rota Optimize Edildi!</span>
+          </div>
+          <span id="routeStats" class="text-xs text-slate-300 font-medium bg-slate-800 px-2.5 py-1 rounded-lg">
+            -- km | -- dk
+          </span>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Duraklar en az kilometre ve en kısa seyahat süresine göre sıraya dizildi. Aşağıdaki butona dokunduğunuzda Google Haritalar telefonunuzda tam bu sırayla açılacaktır.
+        </p>
+
+        <!-- Big Launch in Google Maps Button -->
+        <a id="btnLaunchGoogleMaps" href="#" target="_blank" class="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 active:scale-[0.98] transition text-center block">
+          <i class="fa-solid fa-diamond-turn-right text-lg"></i>
+          <span class="text-sm">Google Haritalar'da Başlat</span>
+        </a>
+
+        <!-- Secondary Actions -->
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <a id="btnLaunchAppleMaps" href="#" target="_blank" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl flex items-center justify-center space-x-1.5 transition text-center">
+            <i class="fa-brands fa-apple text-slate-400"></i>
+            <span>Apple Haritalar</span>
+          </a>
+          <button id="btnCopyRouteText" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl flex items-center justify-center space-x-1.5 transition">
+            <i class="fa-solid fa-share-nodes text-slate-400"></i>
+            <span>Listeyi Paylaş</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modals & Bottom Sheets -->
+
+  <!-- Modal 1: Adres Ara (Search Address Modal) -->
+  <div id="modalSearch" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[1000] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-t sm:border border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-magnifying-glass text-blue-400"></i> Adres veya Yer Ara
+        </h3>
+        <button class="modal-close text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="relative">
+        <input id="inputSearchQuery" type="text" placeholder="Örn: Kadıköy Boğa Heykeli, Taksim..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+        <div id="searchSpinner" class="hidden absolute right-3.5 top-3.5 text-blue-400 text-sm">
+          <i class="fa-solid fa-circle-notch fa-spin"></i>
+        </div>
+      </div>
+
+      <!-- Search Suggestions -->
+      <div id="searchResults" class="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[160px] max-h-60">
+        <div class="text-xs text-slate-500 text-center py-6">Adres yazmaya başlayın, öneriler burada listelenecektir.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Toplu Adres Ekle (Batch Paste Modal) -->
+  <div id="modalBatch" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[1000] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-t sm:border border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-paste text-indigo-400"></i> Toplu Adres / Konum Ekle
+        </h3>
+        <button class="modal-close text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-400">
+        Her satıra bir adres veya koordinat (Enlem, Boylam) yapıştırın:
+      </p>
+
+      <textarea id="textareaBatch" rows="6" placeholder="Beşiktaş Meydanı, İstanbul&#10;Kadıköy Rıhtım, İstanbul&#10;Üsküdar İskele, İstanbul&#10;41.0082, 28.9784" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"></textarea>
+
+      <button id="btnProcessBatch" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition">
+        Adresleri Çöz ve Listeye Ekle
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal 3: Telefonda Aç (QR Kod Modal) -->
+  <div id="modalQr" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-xs rounded-2xl p-5 text-center space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white">Telefonda Aç</h3>
+        <button class="modal-close text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-400">
+        Telefonunuzun kamerasını bu QR koda tutarak web uygulamasını anında telefonunuzda açabilirsiniz:
+      </p>
+
+      <div class="bg-white p-3 rounded-xl inline-block shadow-inner mx-auto" id="qrcode"></div>
+
+      <p id="localUrlText" class="text-[11px] text-blue-400 font-mono break-all"></p>
+    </div>
+  </div>
+
+  <!-- Modal 4: PWA Ana Ekrana Ekleme Rehberi -->
+  <div id="modalPwaInfo" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-[1000] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-t sm:border border-slate-800 w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 space-y-4 text-xs">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-mobile-screen-button text-emerald-400"></i> Telefona Uygulama Olarak Ekleme
+        </h3>
+        <button class="modal-close text-slate-400 hover:text-white p-1">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-slate-300">
+        <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+          <p class="font-bold text-white flex items-center gap-1.5 mb-1">
+            <i class="fa-brands fa-apple text-sm"></i> iPhone (Safari):
+          </p>
+          <ol class="list-decimal list-inside space-y-1 text-slate-300">
+            <li>Safari altındaki <strong>"Paylaş"</strong> (<i class="fa-solid fa-arrow-up-from-bracket"></i>) butonuna dokunun.</li>
+            <li>Aşağı kaydırıp <strong>"Ana Ekrana Ekle"</strong> seçeneğini seçin.</li>
+            <li>Artık telefonunuzda tıpkı bir uygulama simgesi olarak yer alacaktır!</li>
+          </ol>
+        </div>
+
+        <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+          <p class="font-bold text-white flex items-center gap-1.5 mb-1">
+            <i class="fa-brands fa-android text-sm text-emerald-400"></i> Android (Chrome):
+          </p>
+          <ol class="list-decimal list-inside space-y-1 text-slate-300">
+            <li>Sağ üstteki <strong>üç nokta</strong> (<i class="fa-solid fa-ellipsis-vertical"></i>) menüsüne dokunun.</li>
+            <li><strong>"Uygulamayı Yükle"</strong> veya <strong>"Ana Ekrana Ekle"</strong> deyin.</li>
+          </ol>
+        </div>
+      </div>
+
+      <button class="modal-close w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-xl transition">
+        Anladım
+      </button>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-4 py-2.5 rounded-full shadow-2xl border border-slate-700 z-[2000] flex items-center space-x-2">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400"></i>
+    <span id="toastMsg">Bildirim</span>
+  </div>
+
+  <footer class="text-center py-2 text-[10px] text-slate-500 safe-bottom">
+    RotaMaster • Çevrimdışı ve Yol Ağı Optimizasyon Motoru
+  </footer>
+
+  <!-- Application Logic -->
+  <script>
+    // --- State ---
+    let stops = []; // Array of { id, title, lat, lng }
+    let map = null;
+    let markersLayer = null;
+    let routePolyline = null;
+    let isMapTapActive = false;
+
+    // --- Sample 8 Locations in Istanbul for Instant Testing ---
+    const SAMPLE_8_STOPS = [
+      { id: '1', title: 'Kadıköy Boğa Heykeli', lat: 40.9904, lng: 29.0292 },
+      { id: '2', title: 'Beşiktaş Çarşı', lat: 41.0428, lng: 29.0064 },
+      { id: '3', title: 'Taksim Meydanı', lat: 41.0370, lng: 28.9858 },
+      { id: '4', title: 'Sultanahmet Camii', lat: 41.0054, lng: 28.9768 },
+      { id: '5', title: 'Üsküdar Sahil', lat: 41.0267, lng: 29.0153 },
+      { id: '6', title: 'Şişli Cevahir AVM', lat: 41.0628, lng: 28.9907 },
+      { id: '7', title: 'Ortaköy Meydanı', lat: 41.0483, lng: 29.0274 },
+      { id: '8', title: 'Eminönü Mısır Çarşısı', lat: 41.0166, lng: 28.9705 }
+    ];
+
+    // --- Initialize Leaflet Map ---
+    function initMap() {
+      // Default center around Istanbul
+      map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([41.025, 29.005], 11);
+
+      // Clean CartoDB Dark Matter / Positron or OSM Tiles
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19
+      }).addTo(map);
+
+      markersLayer = L.layerGroup().addTo(map);
+
+      // Map click handler for tapping stops
+      map.on('click', function(e) {
+        if (!isMapTapActive) return;
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        reverseGeocode(lat, lng, (address) => {
+          addStop(address || `İğne Konum (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng);
+          showToast('Durak haritadan eklendi!', 'fa-check');
+        });
+      });
+    }
+
+    // --- Geocoding Helpers ---
+    async function reverseGeocode(lat, lng, callback) {
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+        const data = await res.json();
+        const shortName = data.display_name ? data.display_name.split(',').slice(0, 2).join(',') : null;
+        callback(shortName);
+      } catch (err) {
+        callback(null);
+      }
+    }
+
+    async function searchGeocode(query) {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+      return await res.json();
+    }
+
+    // --- Stops Management ---
+    function addStop(title, lat, lng) {
+      if (stops.length >= 10) {
+        showToast('Google Maps en fazla 10 nokta destekler!', 'fa-triangle-exclamation');
+        return;
+      }
+      const newStop = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+        title: title || `Durak ${stops.length + 1}`,
+        lat: parseFloat(lat),
+        lng: parseFloat(lng)
+      };
+      stops.push(newStop);
+      updateUI();
+      hideResults();
+    }
+
+    function removeStop(id) {
+      stops = stops.filter(s => s.id !== id);
+      updateUI();
+      hideResults();
+    }
+
+    function moveStop(index, direction) {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= stops.length) return;
+      const temp = stops[index];
+      stops[index] = stops[targetIndex];
+      stops[targetIndex] = temp;
+      updateUI();
+      hideResults();
+    }
+
+    function setAsStart(index) {
+      if (index === 0) return;
+      const item = stops.splice(index, 1)[0];
+      stops.unshift(item);
+      updateUI();
+      hideResults();
+      showToast('1. Durak (Başlangıç) olarak ayarlandı', 'fa-star');
+    }
+
+    // --- Render Stops & Map Markers ---
+    function updateUI() {
+      const stopsList = document.getElementById('stopsList');
+      const emptyState = document.getElementById('emptyState');
+      const stopCountBadge = document.getElementById('stopCountBadge');
+
+      stopCountBadge.innerText = `${stops.length} Durak`;
+
+      if (stops.length === 0) {
+        emptyState.classList.remove('hidden');
+        stopsList.innerHTML = '';
+        stopsList.appendChild(emptyState);
+        markersLayer.clearLayers();
+        if (routePolyline) {
+          map.removeLayer(routePolyline);
+          routePolyline = null;
+        }
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      stopsList.innerHTML = '';
+
+      // Update Map Markers
+      markersLayer.clearLayers();
+      const bounds = [];
+
+      stops.forEach((stop, idx) => {
+        const isStart = idx === 0;
+        const isEnd = idx === stops.length - 1 && stops.length > 1;
+        
+        let markerClass = 'marker-stop';
+        if (isStart) markerClass = 'marker-start';
+        else if (isEnd) markerClass = 'marker-end';
+
+        // Custom Leaflet DivIcon
+        const customIcon = L.divIcon({
+          className: '',
+          html: `<div class="custom-marker ${markerClass}" style="width: 28px; height: 28px;">${idx + 1}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const marker = L.marker([stop.lat, stop.lng], { icon: customIcon })
+          .bindPopup(`<b>${idx + 1}. ${stop.title}</b><br><small>${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}</small>`);
+        
+        markersLayer.addLayer(marker);
+        bounds.push([stop.lat, stop.lng]);
+
+        // Render List Element
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between p-2.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 rounded-xl transition';
+        div.innerHTML = `
+          <div class="flex items-center space-x-2.5 overflow-hidden flex-1 mr-2">
+            <span class="w-6 h-6 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isStart ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-200'}">
+              ${idx + 1}
+            </span>
+            <div class="truncate">
+              <p class="text-xs font-semibold text-slate-100 truncate">${escapeHtml(stop.title)}</p>
+              <p class="text-[10px] text-slate-400 font-mono">${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-1 shrink-0">
+            ${idx > 0 ? `
+              <button onclick="setAsStart(${idx})" class="p-1.5 text-slate-400 hover:text-amber-400" title="Başlangıç Yap">
+                <i class="fa-regular fa-star text-xs"></i>
+              </button>
+            ` : ''}
+            <button onclick="moveStop(${idx}, -1)" ${idx === 0 ? 'disabled class="opacity-20 p-1.5 text-slate-400"' : 'class="p-1.5 text-slate-400 hover:text-white"'} title="Yukarı Taşı">
+              <i class="fa-solid fa-chevron-up text-xs"></i>
+            </button>
+            <button onclick="moveStop(${idx}, 1)" ${idx === stops.length - 1 ? 'disabled class="opacity-20 p-1.5 text-slate-400"' : 'class="p-1.5 text-slate-400 hover:text-white"'} title="Aşağı Taşı">
+              <i class="fa-solid fa-chevron-down text-xs"></i>
+            </button>
+            <button onclick="removeStop('${stop.id}')" class="p-1.5 text-rose-400/80 hover:text-rose-400" title="Sil">
+              <i class="fa-solid fa-xmark text-xs"></i>
+            </button>
+          </div>
+        `;
+        stopsList.appendChild(div);
+      });
+
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [30, 30] });
+      }
+    }
+
+    function hideResults() {
+      document.getElementById('resultCard').classList.add('hidden');
+      if (routePolyline) {
+        map.removeLayer(routePolyline);
+        routePolyline = null;
+      }
+    }
+
+    // --- Distance Matrix & Optimization Algorithms (TSP) ---
+    // Haversine formula (km)
+    function haversineDistance(c1, c2) {
+      const R = 6371; // km
+      const dLat = (c2.lat - c1.lat) * Math.PI / 180;
+      const dLon = (c2.lng - c1.lng) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(c1.lat * Math.PI / 180) * Math.cos(c2.lat * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    // Try fetching driving matrix from free OSRM Table API, fallback to Haversine
+    async function getDistanceMatrix(points) {
+      const n = points.length;
+      try {
+        const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+        const url = `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=distance,duration`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.code === 'Ok' && data.distances) {
+          // OSRM returns distances in meters
+          return data.distances.map(row => row.map(d => d / 1000));
+        }
+      } catch (e) {
+        console.warn('OSRM Matrix failed, using Haversine calculation.', e);
+      }
+
+      // Fallback: Haversine distance matrix * 1.3 (approximating road factor)
+      const matrix = [];
+      for (let i = 0; i < n; i++) {
+        matrix[i] = [];
+        for (let j = 0; j < n; j++) {
+          matrix[i][j] = i === j ? 0 : haversineDistance(points[i], points[j]) * 1.3;
+        }
+      }
+      return matrix;
+    }
+
+    // Exact Branch & Bound TSP Solver for N <= 10
+    // Guaranteed mathematically 100% shortest route
+    function solveExactTSP(distMatrix, isRoundTrip) {
+      const n = distMatrix.length;
+      if (n <= 1) return [0];
+      if (n === 2) return [0, 1];
+
+      let bestOrder = null;
+      let minCost = Infinity;
+
+      const indices = [];
+      for (let i = 1; i < n; i++) indices.push(i);
+
+      function search(current, currentCost, remaining) {
+        if (currentCost >= minCost) return; // Prune branch
+
+        if (remaining.length === 0) {
+          const totalCost = isRoundTrip ? currentCost + distMatrix[current[current.length - 1]][0] : currentCost;
+          if (totalCost < minCost) {
+            minCost = totalCost;
+            bestOrder = [...current];
+          }
+          return;
+        }
+
+        for (let i = 0; i < remaining.length; i++) {
+          const next = remaining[i];
+          const nextRemaining = remaining.slice(0, i).concat(remaining.slice(i + 1));
+          search(
+            [...current, next],
+            currentCost + distMatrix[current[current.length - 1]][next],
+            nextRemaining
+          );
+        }
+      }
+
+      search([0], 0, indices);
+      return bestOrder || Array.from({length: n}, (_, i) => i);
+    }
+
+    // --- Optimization Execution ---
+    async function runOptimization() {
+      if (stops.length < 2) {
+        showToast('En az 2 durak eklemelisiniz!', 'fa-triangle-exclamation');
+        return;
+      }
+
+      const btnOptimize = document.getElementById('btnOptimize');
+      const originalText = btnOptimize.innerHTML;
+      btnOptimize.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-lg"></i> <span>En Kısa Yol Hesaplanıyor...</span>`;
+      btnOptimize.disabled = true;
+
+      try {
+        const isRoundTrip = document.querySelector('input[name="routeType"]:checked').value === 'roundtrip';
+        
+        // 1. Get distance matrix (via OSRM driving distance or Haversine)
+        const distMatrix = await getDistanceMatrix(stops);
+
+        // 2. Solve TSP
+        const optimalOrder = solveExactTSP(distMatrix, isRoundTrip);
+
+        // 3. Reorder stops list
+        const reorderedStops = optimalOrder.map(idx => stops[idx]);
+        stops = reorderedStops;
+        updateUI();
+
+        // 4. Fetch actual driving road geometry for Leaflet polyline
+        await drawRoadRoute(stops, isRoundTrip);
+
+        // 5. Generate Google Maps & Apple Maps URLs
+        generateMapsLinks(stops, isRoundTrip);
+
+        showToast('Rota en kısa şekilde optimize edildi!', 'fa-bolt');
+      } catch (err) {
+        console.error('Optimization error:', err);
+        showToast('Hesaplama sırasında bir hata oluştu.', 'fa-triangle-exclamation');
+      } finally {
+        btnOptimize.innerHTML = originalText;
+        btnOptimize.disabled = false;
+      }
+    }
+
+    // --- Draw Road Geometry via OSRM ---
+    async function drawRoadRoute(orderedStops, isRoundTrip) {
+      if (routePolyline) {
+        map.removeLayer(routePolyline);
+        routePolyline = null;
+      }
+
+      const points = [...orderedStops];
+      if (isRoundTrip) {
+        points.push(orderedStops[0]);
+      }
+
+      try {
+        const coordsStr = points.map(p => `${p.lng},${p.lat}`).join(';');
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const distanceKm = (route.distance / 1000).toFixed(1);
+          const durationMin = Math.round(route.duration / 60);
+          const durationStr = durationMin > 60 ? `${Math.floor(durationMin / 60)} sa ${durationMin % 60} dk` : `${durationMin} dk`;
+
+          document.getElementById('routeStats').innerText = `${distanceKm} km • Yaklaşık ${durationStr}`;
+
+          // GeoJSON coordinates are [lng, lat], Leaflet polyline needs [lat, lng]
+          const latLngs = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          routePolyline = L.polyline(latLngs, {
+            color: '#2563eb',
+            weight: 5,
+            opacity: 0.85,
+            lineJoin: 'round'
+          }).addTo(map);
+
+          map.fitBounds(routePolyline.getBounds(), { padding: [35, 35] });
+          return;
+        }
+      } catch (e) {
+        console.warn('Failed to fetch OSRM route geometry:', e);
+      }
+
+      // Straight-line fallback
+      const latLngs = points.map(p => [p.lat, p.lng]);
+      routePolyline = L.polyline(latLngs, {
+        color: '#2563eb',
+        weight: 4,
+        dashArray: '6, 8',
+        opacity: 0.7
+      }).addTo(map);
+      document.getElementById('routeStats').innerText = `Tahmini Kuş Uçuşu`;
+    }
+
+    // --- Create Google Maps & Apple Maps Deep Links ---
+    function generateMapsLinks(orderedStops, isRoundTrip) {
+      const origin = `${orderedStops[0].lat},${orderedStops[0].lng}`;
+      let destination = '';
+      let waypointsList = [];
+
+      if (isRoundTrip) {
+        destination = `${orderedStops[0].lat},${orderedStops[0].lng}`;
+        waypointsList = orderedStops.slice(1).map(s => `${s.lat},${s.lng}`);
+      } else {
+        destination = `${orderedStops[orderedStops.length - 1].lat},${orderedStops[orderedStops.length - 1].lng}`;
+        waypointsList = orderedStops.slice(1, -1).map(s => `${s.lat},${s.lng}`);
+      }
+
+      // Google Maps Universal Link
+      // Format: https://www.google.com/maps/dir/?api=1&origin=...&destination=...&waypoints=...&travelmode=driving
+      let gmapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+      if (waypointsList.length > 0) {
+        gmapsUrl += `&waypoints=${encodeURIComponent(waypointsList.join('|'))}`;
+      }
+
+      // Apple Maps Link (for iOS users)
+      const appleUrl = `http://maps.apple.com/?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}`;
+
+      // Update UI elements
+      document.getElementById('btnLaunchGoogleMaps').href = gmapsUrl;
+      document.getElementById('btnLaunchAppleMaps').href = appleUrl;
+      document.getElementById('resultCard').classList.remove('hidden');
+
+      // Scroll smoothly to result card
+      document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // --- Copy / Share Route Text ---
+    function copyRouteSummary() {
+      let text = '📍 *RotaMaster - Optimize Edilmiş Rota:*\\n\\n';
+      stops.forEach((s, i) => {
+        text += `${i + 1}. ${s.title} (${s.lat.toFixed(4)}, ${s.lng.toFixed(4)})\\n`;
+      });
+      const gmapsLink = document.getElementById('btnLaunchGoogleMaps').href;
+      text += `\\n🚗 Google Haritalar Bağlantısı:\\n${gmapsLink}`;
+
+      if (navigator.share) {
+        navigator.share({
+          title: 'Optimize Edilmiş Rota',
+          text: text
+        }).catch(() => {});
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(text);
+        showToast('Rota listesi panoya kopyalandı!', 'fa-copy');
+      }
+    }
+
+    // --- UI Helpers & Event Listeners ---
+    function showToast(msg, icon = 'fa-check') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      const toastIcon = document.getElementById('toastIcon');
+      toastMsg.innerText = msg;
+      toastIcon.className = `fa-solid ${icon} text-emerald-400`;
+      toast.classList.remove('hidden');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3000);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.innerText = text;
+      return div.innerHTML;
+    }
+
+    // --- Search Autocomplete Logic ---
+    let searchTimeout = null;
+    const inputSearchQuery = document.getElementById('inputSearchQuery');
+    const searchSpinner = document.getElementById('searchSpinner');
+    const searchResults = document.getElementById('searchResults');
+
+    inputSearchQuery.addEventListener('input', function() {
+      clearTimeout(searchTimeout);
+      const query = this.value.trim();
+      if (query.length < 3) {
+        searchResults.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">En az 3 harf giriniz...</div>';
+        return;
+      }
+
+      searchSpinner.classList.remove('hidden');
+      searchTimeout = setTimeout(async () => {
+        try {
+          const results = await searchGeocode(query);
+          searchSpinner.classList.add('hidden');
+          searchResults.innerHTML = '';
+
+          if (!results || results.length === 0) {
+            searchResults.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">Sonuç bulunamadı.</div>';
+            return;
+          }
+
+          results.forEach(item => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left p-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700/50 transition flex items-start space-x-2.5';
+            btn.innerHTML = `
+              <i class="fa-solid fa-location-dot text-blue-400 text-xs mt-1 shrink-0"></i>
+              <div class="truncate">
+                <p class="text-xs font-semibold text-white truncate">${escapeHtml(item.display_name.split(',')[0])}</p>
+                <p class="text-[10px] text-slate-400 truncate">${escapeHtml(item.display_name)}</p>
+              </div>
+            `;
+            btn.onclick = () => {
+              addStop(item.display_name.split(',')[0], item.lat, item.lon);
+              document.getElementById('modalSearch').classList.add('hidden');
+              inputSearchQuery.value = '';
+              showToast('Durak eklendi!', 'fa-check');
+            };
+            searchResults.appendChild(btn);
+          });
+        } catch (err) {
+          searchSpinner.classList.add('hidden');
+          searchResults.innerHTML = '<div class="text-xs text-rose-400 text-center py-6">Arama yapılamadı.</div>';
+        }
+      }, 450);
+    });
+
+    // --- Modal Controls ---
+    function setupModals() {
+      // Close modal triggers
+      document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.addEventListener('click', () => {
+          btn.closest('.fixed').classList.add('hidden');
+        });
+      });
+
+      // Search Modal
+      document.getElementById('btnSearchModal').addEventListener('click', () => {
+        document.getElementById('modalSearch').classList.remove('hidden');
+        inputSearchQuery.focus();
+      });
+
+      // Batch Modal
+      document.getElementById('btnBatchModal').addEventListener('click', () => {
+        document.getElementById('modalBatch').classList.remove('hidden');
+      });
+
+      // PWA Info Modal
+      document.getElementById('btnPwaInfo').addEventListener('click', () => {
+        document.getElementById('modalPwaInfo').classList.remove('hidden');
+      });
+
+      // QR Code Modal
+      document.getElementById('btnShareQr').addEventListener('click', () => {
+        const modal = document.getElementById('modalQr');
+        const qrContainer = document.getElementById('qrcode');
+        qrContainer.innerHTML = '';
+        
+        const currentUrl = window.location.href;
+        document.getElementById('localUrlText').innerText = currentUrl;
+
+        new QRCode(qrContainer, {
+          text: currentUrl,
+          width: 160,
+          height: 160,
+          colorDark: "#0f172a",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+
+        modal.classList.remove('hidden');
+      });
+
+      // Process Batch Modal
+      document.getElementById('btnProcessBatch').addEventListener('click', async () => {
+        const text = document.getElementById('textareaBatch').value.trim();
+        if (!text) return;
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        document.getElementById('modalBatch').classList.add('hidden');
+
+        showToast(`${lines.length} adres işleniyor...`, 'fa-circle-notch fa-spin');
+        for (const line of lines) {
+          // Check if coordinate: lat, lng
+          const coordMatch = line.match(/^([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)$/);
+          if (coordMatch) {
+            addStop(line, parseFloat(coordMatch[1]), parseFloat(coordMatch[2]));
+          } else {
+            // Geocode address
+            try {
+              const res = await searchGeocode(line);
+              if (res && res.length > 0) {
+                addStop(line.split(',')[0], res[0].lat, res[0].lon);
+              }
+            } catch (e) {}
+          }
+        }
+        showToast('Toplu adresler eklendi!', 'fa-check');
+      });
+    }
+
+    // --- Buttons & Geolocation ---
+    document.getElementById('btnCurrentGps').addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        showToast('Tarayıcınız konum servisini desteklemiyor.', 'fa-triangle-exclamation');
+        return;
+      }
+      showToast('Mevcut GPS konumu alınıyor...', 'fa-circle-notch fa-spin');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          addStop('Mevcut Konumum', lat, lng);
+          // Set as origin
+          setAsStart(stops.length - 1);
+          map.setView([lat, lng], 13);
+          showToast('Mevcut konumunuz başlangıç olarak eklendi!', 'fa-location-dot');
+        },
+        (err) => {
+          showToast('Konum izni alınamadı.', 'fa-triangle-exclamation');
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+
+    document.getElementById('btnMapTapToggle').addEventListener('click', function() {
+      isMapTapActive = !isMapTapActive;
+      const notice = document.getElementById('mapTapNotice');
+      if (isMapTapActive) {
+        this.classList.add('bg-amber-500', 'text-slate-950');
+        this.classList.remove('bg-slate-900/90', 'text-slate-200');
+        notice.classList.remove('hidden');
+      } else {
+        this.classList.remove('bg-amber-500', 'text-slate-950');
+        this.classList.add('bg-slate-900/90', 'text-slate-200');
+        notice.classList.add('hidden');
+      }
+    });
+
+    document.getElementById('btnQuickDemo').addEventListener('click', () => {
+      stops = JSON.parse(JSON.stringify(SAMPLE_8_STOPS));
+      updateUI();
+      hideResults();
+      showToast('8 örnek durak yüklendi!', 'fa-wand-magic-sparkles');
+    });
+
+    document.getElementById('btnClearAll').addEventListener('click', () => {
+      if (confirm('Tüm durakları temizlemek istiyor musunuz?')) {
+        stops = [];
+        updateUI();
+        hideResults();
+        showToast('Tüm duraklar temizlendi.', 'fa-trash-can');
+      }
+    });
+
+    document.getElementById('btnOptimize').addEventListener('click', runOptimization);
+    document.getElementById('btnCopyRouteText').addEventListener('click', copyRouteSummary);
+
+    // --- Service Worker Registration for PWA ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+
+    // Initialize application on DOM ready
+    window.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      setupModals();
+      updateUI();
+    });
+  </script>
+</body>
+</html>
