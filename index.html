@@ -112,6 +112,12 @@
     <div class="relative bg-slate-900 border border-slate-800 rounded-2xl p-1.5 shadow-xl overflow-hidden">
       <div id="map"></div>
       
+      <!-- Current Layer Badge -->
+      <div id="layerNameBadge" class="absolute top-3 left-3 bg-slate-900/85 backdrop-blur text-[10px] text-slate-200 font-semibold px-2.5 py-1 rounded-lg border border-slate-700/80 shadow z-[400] flex items-center gap-1.5">
+        <i class="fa-solid fa-map text-blue-400"></i>
+        <span id="layerNameText">Google Sokak</span>
+      </div>
+
       <!-- Map Overlay Mode Indicators -->
       <div id="mapTapNotice" class="hidden absolute top-4 left-4 right-4 bg-amber-500/95 text-slate-950 text-xs font-semibold px-3 py-2 rounded-xl text-center shadow-lg backdrop-blur-sm z-[500] animate-pulse">
         <i class="fa-solid fa-hand-pointer mr-1"></i> Haritada durak eklemek istediğiniz noktaya dokunun!
@@ -119,6 +125,9 @@
       
       <!-- Map Quick Floating Buttons -->
       <div class="absolute bottom-4 right-4 flex flex-col space-y-2 z-[400]">
+        <button id="btnMapLayerToggle" class="w-10 h-10 rounded-xl bg-slate-900/90 text-slate-200 border border-slate-700 flex items-center justify-center shadow-md active:scale-95 transition" title="Harita Görünümünü Değiştir (Google / Uydu)">
+          <i class="fa-solid fa-layer-group text-base text-amber-400"></i>
+        </button>
         <button id="btnMapTapToggle" class="w-10 h-10 rounded-xl bg-slate-900/90 text-slate-200 border border-slate-700 flex items-center justify-center shadow-md active:scale-95 transition" title="Haritadan Tıklayarak Ekle">
           <i class="fa-solid fa-location-crosshairs text-base"></i>
         </button>
@@ -386,21 +395,58 @@
       { id: '8', title: 'Eminönü Mısır Çarşısı', lat: 41.0166, lng: 28.9705 }
     ];
 
+    let currentLayerIndex = 0;
+    let baseLayers = [];
+
     // --- Initialize Leaflet Map ---
     function initMap() {
-      // Default center around Istanbul
+      // Default center around Turkey
       map = L.map('map', {
         zoomControl: false,
         attributionControl: false
-      }).setView([41.025, 29.005], 11);
+      }).setView([39.0, 35.0], 6);
 
-      // Official OpenStreetMap Tiles (100% free, zero API key required)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap'
-      }).addTo(map);
+      // 1. Google Streets (Ultra crisp official Google Maps design)
+      const googleStreets = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 21,
+        subdomains: ['0', '1', '2', '3']
+      });
+
+      // 2. Google Hybrid (Real high-res satellite photography + street overlays)
+      const googleHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 21,
+        subdomains: ['0', '1', '2', '3']
+      });
+
+      // 3. OpenStreetMap
+      const osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      });
+
+      baseLayers = [
+        { layer: googleStreets, name: 'Google Sokak' },
+        { layer: googleHybrid, name: 'Google Uydu' },
+        { layer: osmStandard, name: 'Standart (OSM)' }
+      ];
+
+      // Set Google Streets as default!
+      googleStreets.addTo(map);
 
       markersLayer = L.layerGroup().addTo(map);
+
+      // Layer Toggle Button Click Listener
+      document.getElementById('btnMapLayerToggle').addEventListener('click', () => {
+        map.removeLayer(baseLayers[currentLayerIndex].layer);
+        currentLayerIndex = (currentLayerIndex + 1) % baseLayers.length;
+        baseLayers[currentLayerIndex].layer.addTo(map);
+
+        if (routePolyline) routePolyline.bringToFront();
+        markersLayer.bringToFront();
+
+        const currentName = baseLayers[currentLayerIndex].name;
+        document.getElementById('layerNameText').innerText = currentName;
+        showToast(`Harita katmanı: ${currentName}`, 'fa-layer-group');
+      });
 
       // Map click handler for tapping stops
       map.on('click', function(e) {
