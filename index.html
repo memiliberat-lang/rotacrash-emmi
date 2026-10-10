@@ -243,9 +243,17 @@
         </button>
       </div>
 
+      <!-- Friendly Street Tip Banner -->
+      <div class="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-[11px] text-blue-300 flex items-start gap-2">
+        <i class="fa-solid fa-lightbulb text-amber-400 mt-0.5 shrink-0"></i>
+        <span>
+          <strong>İpucu:</strong> Küçük sokaklar ve çıkmazlar harita sisteminde kayıtlı olmayabilir. Mahallenizi (örn: <em>Altınçağ</em>) arattıktan sonra harita üzerinde evinizin olduğu yere dokunarak veya iğneyi sürükleyerek tam yerinizi belirleyebilirsiniz.
+        </span>
+      </div>
+
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
-          <input id="inputSearchQuery" type="text" placeholder="Örn: Kadıköy, Kızılay, İstiklal Caddesi..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
+          <input id="inputSearchQuery" type="text" placeholder="Örn: Altınçağ, Kadıköy, Kızılay..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500">
           <div id="searchSpinner" class="hidden absolute right-3.5 top-3.5 text-blue-400 text-sm">
             <i class="fa-solid fa-circle-notch fa-spin"></i>
           </div>
@@ -396,13 +404,40 @@
 
       // Map click handler for tapping stops
       map.on('click', function(e) {
-        if (!isMapTapActive) return;
         const lat = e.latlng.lat;
         const lng = e.latlng.lng;
-        reverseGeocode(lat, lng, (address) => {
-          addStop(address || `İğne Konum (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng);
-          showToast('Durak haritadan eklendi!', 'fa-check');
-        });
+
+        if (isMapTapActive) {
+          reverseGeocode(lat, lng, (address) => {
+            addStop(address || `İğne Konum (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng);
+            showToast('Durak haritadan eklendi!', 'fa-location-dot');
+          });
+          return;
+        }
+
+        // Show friendly popup when tapping anywhere on map
+        const popupDiv = document.createElement('div');
+        popupDiv.className = 'text-center p-1.5 space-y-1.5';
+        popupDiv.innerHTML = `
+          <div class="text-xs font-bold text-slate-800">📍 Seçilen Nokta</div>
+          <p class="text-[10px] text-slate-500">${lat.toFixed(4)}, ${lng.toFixed(4)}</p>
+          <button id="btnPopupAddStop" class="w-full py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow transition">
+            ➕ Burayı Durak Olarak Ekle
+          </button>
+        `;
+
+        const popup = L.popup({ closeButton: true })
+          .setLatLng([lat, lng])
+          .setContent(popupDiv)
+          .openOn(map);
+
+        popupDiv.querySelector('#btnPopupAddStop').onclick = () => {
+          map.closePopup();
+          reverseGeocode(lat, lng, (address) => {
+            addStop(address || `İğne Konum (${lat.toFixed(4)}, ${lng.toFixed(4)})`, lat, lng);
+            showToast('Durak haritadan eklendi!', 'fa-location-dot');
+          });
+        };
       });
     }
 
@@ -506,9 +541,24 @@
     }
 
     function removeStop(id) {
+      const prevCount = stops.length;
       stops = stops.filter(s => s.id !== id);
       updateUI();
       hideResults();
+      if (stops.length < prevCount) {
+        showToast('Durak listeden kaldırıldı.', 'fa-trash-can');
+      }
+    }
+
+    function editStopTitle(id) {
+      const stop = stops.find(s => s.id === id);
+      if (!stop) return;
+      const newTitle = prompt('Durak adını veya sokak/ev notunu girin:', stop.title);
+      if (newTitle && newTitle.trim()) {
+        stop.title = newTitle.trim();
+        updateUI();
+        showToast('Durak adı güncellendi.', 'fa-pen');
+      }
     }
 
     function moveStop(index, direction) {
@@ -529,6 +579,12 @@
       hideResults();
       showToast('1. Durak (Başlangıç) olarak ayarlandı', 'fa-star');
     }
+
+    // Expose functions globally for bulletproof inline execution
+    window.removeStop = removeStop;
+    window.editStopTitle = editStopTitle;
+    window.moveStop = moveStop;
+    window.setAsStart = setAsStart;
 
     // --- Render Stops & Map Markers ---
     function updateUI() {
@@ -573,39 +629,66 @@
           iconAnchor: [14, 14]
         });
 
-        const marker = L.marker([stop.lat, stop.lng], { icon: customIcon })
-          .bindPopup(`<b>${idx + 1}. ${stop.title}</b><br><small>${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}</small>`);
+        // Draggable Marker: User can fine-tune stop location on the map
+        const marker = L.marker([stop.lat, stop.lng], { 
+          icon: customIcon,
+          draggable: true 
+        });
+
+        marker.on('dragend', function(e) {
+          const newPos = e.target.getLatLng();
+          stop.lat = newPos.lat;
+          stop.lng = newPos.lng;
+          reverseGeocode(stop.lat, stop.lng, (newName) => {
+            if (newName && stop.title.startsWith('İğne Konum')) {
+              stop.title = newName;
+            }
+            updateUI();
+            showToast(`${idx + 1}. Durağın konumu güncellendi!`, 'fa-location-dot');
+          });
+        });
+
+        marker.bindPopup(`
+          <div class="p-1 space-y-1 text-center">
+            <b>${idx + 1}. ${escapeHtml(stop.title)}</b><br>
+            <span class="text-[10px] text-slate-500">${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}</span><br>
+            <span class="text-[10px] text-blue-600 font-semibold block mt-1">📍 İğneyi sürükleyerek tam evinize getirebilirsiniz.</span>
+          </div>
+        `);
         
         markersLayer.addLayer(marker);
         bounds.push([stop.lat, stop.lng]);
 
-        // Render List Element
+        // Render List Element with large touch-friendly action buttons
         const div = document.createElement('div');
-        div.className = 'flex items-center justify-between p-2.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 rounded-xl transition';
+        div.className = 'flex items-center justify-between p-2.5 bg-slate-800/90 hover:bg-slate-800 border border-slate-700/80 rounded-xl transition gap-2 shadow-sm';
         div.innerHTML = `
-          <div class="flex items-center space-x-2.5 overflow-hidden flex-1 mr-2">
-            <span class="w-6 h-6 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isStart ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-200'}">
+          <div class="flex items-center space-x-2.5 overflow-hidden flex-1 cursor-pointer" onclick="editStopTitle('${stop.id}')" title="İsmi değiştirmek için dokunun">
+            <span class="w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${isStart ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-200'}">
               ${idx + 1}
             </span>
             <div class="truncate">
-              <p class="text-xs font-semibold text-slate-100 truncate">${escapeHtml(stop.title)}</p>
-              <p class="text-[10px] text-slate-400 font-mono">${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}</p>
+              <div class="flex items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-100 truncate">${escapeHtml(stop.title)}</p>
+                <i class="fa-solid fa-pen-to-square text-[10px] text-slate-400"></i>
+              </div>
+              <p class="text-[10px] text-slate-400 font-mono">${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)} • <span class="text-blue-400">Haritada sürüklenebilir</span></p>
             </div>
           </div>
           <div class="flex items-center space-x-1 shrink-0">
             ${idx > 0 ? `
-              <button onclick="setAsStart(${idx})" class="p-1.5 text-slate-400 hover:text-amber-400" title="Başlangıç Yap">
-                <i class="fa-regular fa-star text-xs"></i>
+              <button type="button" onclick="setAsStart(${idx})" class="w-8 h-8 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-amber-400 flex items-center justify-center transition" title="1. Durak (Başlangıç) Yap">
+                <i class="fa-regular fa-star text-xs pointer-events-none"></i>
               </button>
             ` : ''}
-            <button onclick="moveStop(${idx}, -1)" ${idx === 0 ? 'disabled class="opacity-20 p-1.5 text-slate-400"' : 'class="p-1.5 text-slate-400 hover:text-white"'} title="Yukarı Taşı">
-              <i class="fa-solid fa-chevron-up text-xs"></i>
+            <button type="button" onclick="moveStop(${idx}, -1)" ${idx === 0 ? 'disabled class="opacity-20 w-8 h-8 rounded-lg bg-slate-700/40 text-slate-500 flex items-center justify-center"' : 'class="w-8 h-8 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition"'} title="Yukarı Taşı">
+              <i class="fa-solid fa-chevron-up text-xs pointer-events-none"></i>
             </button>
-            <button onclick="moveStop(${idx}, 1)" ${idx === stops.length - 1 ? 'disabled class="opacity-20 p-1.5 text-slate-400"' : 'class="p-1.5 text-slate-400 hover:text-white"'} title="Aşağı Taşı">
-              <i class="fa-solid fa-chevron-down text-xs"></i>
+            <button type="button" onclick="moveStop(${idx}, 1)" ${idx === stops.length - 1 ? 'disabled class="opacity-20 w-8 h-8 rounded-lg bg-slate-700/40 text-slate-500 flex items-center justify-center"' : 'class="w-8 h-8 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition"'} title="Aşağı Taşı">
+              <i class="fa-solid fa-chevron-down text-xs pointer-events-none"></i>
             </button>
-            <button onclick="removeStop('${stop.id}')" class="p-1.5 text-rose-400/80 hover:text-rose-400" title="Sil">
-              <i class="fa-solid fa-xmark text-xs"></i>
+            <button type="button" onclick="removeStop('${stop.id}')" class="w-8 h-8 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 active:bg-rose-600 text-rose-300 flex items-center justify-center transition" title="Durağı Sil">
+              <i class="fa-solid fa-trash-can text-xs pointer-events-none"></i>
             </button>
           </div>
         `;
@@ -1066,12 +1149,14 @@
     });
 
     document.getElementById('btnClearAll').addEventListener('click', () => {
-      if (confirm('Tüm durakları temizlemek istiyor musunuz?')) {
-        stops = [];
-        updateUI();
-        hideResults();
-        showToast('Tüm duraklar temizlendi.', 'fa-trash-can');
+      if (stops.length === 0) {
+        showToast('Listede durak bulunmuyor.', 'fa-circle-info');
+        return;
       }
+      stops = [];
+      updateUI();
+      hideResults();
+      showToast('Tüm duraklar temizlendi.', 'fa-trash-can');
     });
 
     document.getElementById('btnOptimize').addEventListener('click', runOptimization);
