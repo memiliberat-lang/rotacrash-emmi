@@ -855,6 +855,61 @@
       }
     }
 
+    // --- Smart Multi-Tier Address & Landmark Resolver ---
+    async function resolveAddressSmart(inputLine, defaultContext = 'Hatay Dörtyol Altınçağ') {
+      const clean = String(inputLine || '').trim();
+      if (!clean) return null;
+
+      // 1. Direct coordinate check: "36.8714, 36.2143"
+      const coordMatch = clean.match(/^([+-]?\d+(?:\.\d+)?)\s*[, ]\s*([+-]?\d+(?:\.\d+)?)$/);
+      if (coordMatch) {
+        return {
+          title: `Konum (${parseFloat(coordMatch[1]).toFixed(4)}, ${parseFloat(coordMatch[2]).toFixed(4)})`,
+          lat: parseFloat(coordMatch[1]),
+          lng: parseFloat(coordMatch[2])
+        };
+      }
+
+      // 2. Strip leading numbering: "1. ", "2- ", "• ", "- "
+      const withoutPrefix = clean.replace(/^\s*[\d\-\*\•]+[\.\-\)\:]\s*/, '').trim();
+
+      // 3. Extract parenthetical detail: "Altınçağ Mahalle Muhtarlığı (Talatlar Caddesi No:1, Altınçağ)"
+      const parenMatch = withoutPrefix.match(/^(.*?)\s*\((.*?)\)$/);
+      const title = parenMatch ? parenMatch[1].trim() : withoutPrefix;
+      const parenDetail = parenMatch ? parenMatch[2].trim() : '';
+
+      // 4. Candidate queries in precision priority order
+      const candidates = [];
+      if (parenDetail) {
+        candidates.push(`${parenDetail} Dörtyol Hatay`);
+        const noNum = parenDetail.replace(/No\s*:\s*\d+/gi, '').trim();
+        if (noNum !== parenDetail) candidates.push(`${noNum} Dörtyol Hatay`);
+      }
+      candidates.push(`${title} Altınçağ Dörtyol Hatay`);
+      candidates.push(`${title} Dörtyol Hatay`);
+      candidates.push(`${title} Hatay`);
+
+      for (const q of candidates) {
+        try {
+          const res = await searchGeocode(q);
+          if (res && res.length > 0 && isFinite(Number(res[0].lat)) && isFinite(Number(res[0].lon))) {
+            return {
+              title: title || clean,
+              lat: Number(res[0].lat),
+              lng: Number(res[0].lon)
+            };
+          }
+        } catch (e) {}
+      }
+
+      // Fallback: Real Altınçağ village center coordinates (36.8714, 36.2143)
+      return {
+        title: title || clean,
+        lat: 36.87136,
+        lng: 36.21428
+      };
+    }
+
     // Global ID counter for reliable IDs
     let stopCounter = Date.now();
 
@@ -1611,78 +1666,86 @@
             // 3. Instruction prompt
             parts.push({
               text: `
-Sen Türkiye coğrafyasını, köylerini, sokaklarını ve mahallelerini çok iyi bilen bir harita uzmanısın.
-Hedef Bölge/İlçe: ${contextHint}
+Sen profesyonel bir veri ve metin ayrıştırma uzmanısın.
+Hedef Bölge: ${contextHint}
 
 GÖREV:
-Yukarıdaki belgeden/metinden/fotoğraftan gidilecek TÜM durakları ve adresleri tek tek çıkar.
-Her durak için:
-- title: Kısa, net durak adı (Örn: "Aygül Çıkmazı - Evim", "Altınçağ Ortaokulu", "Culha Kuruyemiş", "Merkez Saat Kulesi" vb.)
-- address: Tam açık adres
-- lat: Bu konumun enlem koordinatı (sayısal float, örn: 36.8845)
-- lng: Bu konumun boylam koordinatı (sayısal float, örn: 36.1879)
+Yukarıdaki kullanıcı belgesinden/metninden/fotoğrafından gidilecek TÜM durakları tek tek çıkar.
 
-DİKKAT:
-Bölge ${contextHint} civarıdır. Koordinatları Hatay Dörtyol ve Altınçağ çevresine uygun gerçekçi enlem (yaklaşık 36.8 - 36.9) ve boylam (yaklaşık 36.1 - 36.3) olarak üret.
+KESİN KURALLAR:
+1. Kullanıcının verdiği durak isimlerini ve adreslerini KESİNLİKLE BİREBİR KORU.
+2. Listede OLMAYAN hayali dükkanlar, pastaneler veya bakkallar (Örn: Işık Gıda, Merve Pastanesi vb.) KESİNLİKLE UYDURMA.
+3. SADECE VE SADECE kullanıcının verdiği metinde / fotoğrafta geçen yerleri listele.
+4. Her durak için:
+   - title: Kullanıcının belirttiği net durak adı (Örn: "Altınçağ Mahalle Muhtarlığı", "Topçınar Camii")
+   - address: Kullanıcının belirttiği açık adres veya cadde/sokak bilgisi (Örn: "Talatlar Caddesi No:1, Altınçağ")
+
 YALNIZCA geçerli bir JSON dizisi [ ... ] formatında döndür. Markdown (\`\`\`json) veya başka hiçbir açıklama metni ekleme.
 `
             });
 
-            loadingText.innerText = 'Yapay zeka adresleri ve koordinatları çözüyor...';
+            loadingText.innerText = 'Yapay zeka adresleri inceliyor...';
 
             const apiKey = localStorage.getItem('gemini_api_key') || DEFAULT_GEMINI_KEY;
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-            const resp = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: parts }],
-                generationConfig: {
-                  responseMimeType: "application/json"
-                }
-              })
-            });
+            let stopsListJson = [];
 
-            if (!resp.ok) {
-              const errData = await resp.json().catch(() => ({}));
-              throw new Error(errData.error?.message || `HTTP ${resp.status}`);
+            try {
+              const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: parts }],
+                  generationConfig: {
+                    responseMimeType: "application/json"
+                  }
+                })
+              });
+
+              if (resp.ok) {
+                const resultData = await resp.json();
+                const rawReply = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (rawReply) {
+                  stopsListJson = JSON.parse(rawReply.replace(/```json|```/g, '').trim());
+                }
+              } else {
+                console.warn('Gemini API isteği başarısız oldu, akıllı metin ayrıştırıcı devreye giriyor.');
+              }
+            } catch (fetchErr) {
+              console.warn('Gemini fetch hatası:', fetchErr);
             }
 
-            const resultData = await resp.json();
-            const rawReply = resultData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!rawReply) throw new Error('Yapay zekadan yanıt alınamadı.');
-
-            let stopsListJson = [];
-            try {
-              stopsListJson = JSON.parse(rawReply.replace(/```json|```/g, '').trim());
-            } catch (pe) {
-              console.error('JSON parse error:', pe, rawReply);
-              throw new Error('Yapay zeka yanıtı JSON olarak çözülemedi.');
+            // Fallback: If Gemini could not parse or returned empty, but user entered text
+            if ((!Array.isArray(stopsListJson) || stopsListJson.length === 0) && textVal) {
+              const rawLines = textVal.split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0 && !l.toLowerCase().startsWith('selam') && !l.startsWith('---'));
+              stopsListJson = rawLines.map(line => ({ title: line, address: line }));
             }
 
             if (!Array.isArray(stopsListJson) || stopsListJson.length === 0) {
-              showToast('Metinde/dosyada adres tespit edilemedi.', 'fa-triangle-exclamation');
+              showToast('Adres tespit edilemedi. Lütfen geçerli bir metin veya liste girin.', 'fa-triangle-exclamation');
               return;
             }
 
-            // Add each extracted stop in batch
+            loadingText.innerText = 'Adresler haritada tam konumlarıyla eşleştiriliyor...';
+
+            // Add each extracted stop by smart resolving actual map coordinates
             let addedCount = 0;
             for (const item of stopsListJson) {
+              if (stops.length >= 10) break;
               if (item && (item.title || item.address)) {
-                const sTitle = item.title || item.address.split(',')[0];
-                const sLat = Number(item.lat);
-                const sLng = Number(item.lng);
-                if (isFinite(sLat) && isFinite(sLng)) {
-                  if (stops.length < 10) {
-                    stops.push({
-                      id: 'stop_' + (++stopCounter),
-                      title: String(sTitle).trim(),
-                      lat: sLat,
-                      lng: sLng
-                    });
-                    addedCount++;
-                  }
+                const fullSearch = item.address && item.title !== item.address ? `${item.title} (${item.address})` : (item.title || item.address);
+                const resolved = await resolveAddressSmart(fullSearch, contextHint);
+                if (resolved && isFinite(resolved.lat) && isFinite(resolved.lng)) {
+                  stops.push({
+                    id: 'stop_' + (++stopCounter),
+                    title: resolved.title,
+                    lat: resolved.lat,
+                    lng: resolved.lng
+                  });
+                  addedCount++;
                 }
               }
             }
@@ -1692,7 +1755,7 @@ YALNIZCA geçerli bir JSON dizisi [ ... ] formatında döndür. Markdown (\`\`\`
 
             const modalG = document.getElementById('modalGemini');
             if (modalG) modalG.classList.add('hidden');
-            showToast(`Harika! ${addedCount} durak Gemini AI ile haritaya eklendi!`, 'fa-wand-magic-sparkles');
+            showToast(`Harika! ${addedCount} durak Altınçağ haritasına eklendi!`, 'fa-wand-magic-sparkles');
 
             // Reset inputs
             geminiSelectedFile = null;
@@ -1797,23 +1860,24 @@ YALNIZCA geçerli bir JSON dizisi [ ... ] formatında döndür. Markdown (\`\`\`
         const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
         document.getElementById('modalBatch').classList.add('hidden');
 
-        showToast(`${lines.length} adres işleniyor...`, 'fa-circle-notch fa-spin');
+        showToast(`${lines.length} adres taranıyor...`, 'fa-circle-notch fa-spin');
+        let added = 0;
         for (const line of lines) {
-          // Check if coordinate: lat, lng
-          const coordMatch = line.match(/^([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)$/);
-          if (coordMatch) {
-            addStop(line, parseFloat(coordMatch[1]), parseFloat(coordMatch[2]));
-          } else {
-            // Geocode address
-            try {
-              const res = await searchGeocode(line);
-              if (res && res.length > 0) {
-                addStop(line.split(',')[0], res[0].lat, res[0].lon);
-              }
-            } catch (e) {}
+          if (stops.length >= 10) break;
+          const res = await resolveAddressSmart(line, 'Hatay Dörtyol Altınçağ');
+          if (res && isFinite(res.lat) && isFinite(res.lng)) {
+            stops.push({
+              id: 'stop_' + (++stopCounter),
+              title: res.title,
+              lat: res.lat,
+              lng: res.lng
+            });
+            added++;
           }
         }
-        showToast('Toplu adresler eklendi!', 'fa-check');
+        updateUI();
+        hideResults();
+        showToast(`${added} durak Altınçağ haritasına eklendi!`, 'fa-check');
       });
     }
 
